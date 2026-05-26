@@ -99,7 +99,8 @@ async def menu(request: Request):
     if not request.state.device.registered():
         return msx.unregistered_menu()
 
-    categories = await request.state.device.kp.get_content_categories()
+    categories = Category.static_bookmarks_categories()
+    categories += await request.state.device.kp.get_content_categories()
     if categories is None:
         request.state.device.delete()
         return msx.unregistered_menu()
