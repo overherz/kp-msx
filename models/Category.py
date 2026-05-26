@@ -7,10 +7,10 @@ class Category:
     BLACKLIST = ['4k']
 
     BOOKMARKS_CATEGORIES = [
+        lambda: {'id': 'watching', 'title': 'Я смотрю', 'icon': 'tv', 'path': '/msx/watching'},
         lambda: {'id': 'search', 'title': 'Поиск', 'icon': 'search', 'path': '/msx/search', 'params': {'q': '{INPUT}'}, 'interaction': 'http://msx.benzac.de/interaction/input.html', 'options': 'search:3|ru|Поиск'},
         lambda: {'id': 'bookmarks', 'title': 'Закладки', 'icon': 'bookmark', 'path': '/msx/bookmarks'},
         lambda: {'id': 'history', 'title': 'История', 'icon': 'history', 'path': '/msx/history', 'params': {'page': '{PAGE}'}, 'interaction': f'{config.MSX_HOST}/paging.html'},
-        lambda: {'id': 'watching', 'title': 'Я смотрю', 'icon': 'tv', 'path': '/msx/watching'},
     ]
 
     STATIC_CATEGORIES = [
