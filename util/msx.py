@@ -77,7 +77,6 @@ def registered_menu(categories: 'List[Category]'):
         "restore": False,
         "refocus": 1,
         "headline": "kino.pub",
-        "style": "overlay",
         "options": settings_screen(),
         "menu": menu,
     }
