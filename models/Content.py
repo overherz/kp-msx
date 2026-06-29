@@ -124,7 +124,7 @@ class Content:
 
     def to_trailer_button(self, qty, device_settings: 'DeviceSettings' = None):
         props = {
-            'trigger:background': 'player:button:eject:execute'
+            'trigger:background': 'player:eject'
         }
 
         props.update(msx.DEFAULT_PLAY_BUTTON_PROPS)
