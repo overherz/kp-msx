@@ -39,7 +39,7 @@ class Playable:
         props = {
             'resume:key': self.resume_key(),
             'trigger:ready': self.trigger_ready(),
-            'trigger:background': 'player:eject'
+            'trigger:background': 'player:button:eject:execute'
         }
 
         props.update(msx.DEFAULT_PLAY_BUTTON_PROPS)
