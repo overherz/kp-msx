@@ -1,3 +1,4 @@
+import re
 import traceback
 
 import uvicorn
@@ -6,7 +7,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
-from starlette.responses import JSONResponse, FileResponse, Response
+from starlette.responses import JSONResponse, FileResponse, HTMLResponse, Response
 from starlette.staticfiles import StaticFiles
 
 import config
@@ -441,9 +442,30 @@ async def proxy_req(request: Request):
     return Response(contents, code, media_type=content_type)
 
 
+# Player
+
+# msx.benzac.de is blocked for some ISPs, and without tvx-plugin.min.js the player
+# never starts, so the player page gets its third-party scripts from vendor/
+VENDORED_PLAYER_SCRIPTS = {
+    r'(https?:)?//msx\.benzac\.de/js/tvx-plugin\.min\.js[^"]*': '/vendor/tvx-plugin.min.js',
+    r'https?://cdn\.jsdelivr\.net/npm/hls\.js@[^"]*/hls\.min\.js': '/vendor/hls.min.js',
+}
+
+@app.get('/player/hlsx.html')
+async def player_page(request: Request):
+    with open('player/hlsx.html', encoding='utf-8') as f:
+        page = f.read()
+    for pattern, local_url in VENDORED_PLAYER_SCRIPTS.items():
+        page = re.sub(pattern, local_url, page)
+    # Roboto is never used by the player, no need to wait for Google Fonts
+    page = re.sub(r'\s*<link[^>]*fonts\.(googleapis|gstatic)\.com[^>]*>', '', page)
+    return HTMLResponse(page)
+
+
 # Static folders
 
 app.mount('/player/', StaticFiles(directory='player', html=True), name='player')
+app.mount('/vendor/', StaticFiles(directory='vendor'), name='vendor')
 app.mount("/", StaticFiles(directory="pages", html=True), name="pages")
 
 
