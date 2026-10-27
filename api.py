@@ -1,10 +1,13 @@
 import traceback
 
 import uvicorn
+from brotli_asgi import BrotliMiddleware
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
+from starlette.middleware.gzip import GZipMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse, FileResponse, Response
+from starlette.staticfiles import StaticFiles
 
 import config
 from models.Category import Category
@@ -22,45 +25,65 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+app.add_middleware(GZipMiddleware, minimum_size=1000)
+app.add_middleware(BrotliMiddleware, minimum_size=1000)
+
 ENDPOINT = '/msx'
 UNAUTHORIZED = [
-    '/',
-    '/subtitleShifter',
-    '/paging.html',
-    '/paging.js',
     ENDPOINT + '/start.json',
     ENDPOINT + '/proxy'
 ]
+
+
+def extract_real_ip(request):
+    real_ip = request.headers.get("cf-connecting-ip")
+    if real_ip is None:
+        real_ip = request.headers.get("x-forwarded-for")
+    if real_ip is None:
+        real_ip = request.headers.get("x-real-ip")
+    return real_ip
 
 
 @app.middleware('http')
 async def auth(request: Request, call_next):
     if request.method == 'OPTIONS':
         return await call_next(request)
-    device_id = request.query_params.get('id')
 
-    if device_id is None and str(request.url.path) not in UNAUTHORIZED:
-        result = JSONResponse({
-            'response': {
-                'status': 200,
-                'data': {'action': 'warn:ID не может быть пустым'}
-            }
-        })
-        result.headers['Access-Control-Allow-Credentials'] = 'true'
-        result.headers['Access-Control-Allow-Origin'] = '*'
-        return result
+    if request.url.path.startswith('/msx/'):
 
-    if device_id == '{ID}' and str(request.url.path) not in UNAUTHORIZED:
-        result = JSONResponse(msx.unsupported_version())
-        result.headers['Access-Control-Allow-Credentials'] = 'true'
-        result.headers['Access-Control-Allow-Origin'] = '*'
-        return result
+        device_id = request.query_params.get('id')
 
-    request.state.device = Device.by_id(device_id)
-    if request.state.device is None and device_id is not None:
-        request.state.device = Device.create(device_id)
-    if request.state.device is not None and request.state.device.user_agent is None and (ua := request.headers.get('user-agent')) is not None:
-        request.state.device.update_user_agent(ua)
+        if device_id is None and str(request.url.path) not in UNAUTHORIZED:
+            result = JSONResponse({
+                'response': {
+                    'status': 200,
+                    'data': {'action': 'warn:ID не может быть пустым'}
+                }
+            })
+            result.headers['Access-Control-Allow-Credentials'] = 'true'
+            result.headers['Access-Control-Allow-Origin'] = '*'
+            return result
+
+        if device_id == '{ID}' and str(request.url.path) not in UNAUTHORIZED:
+            result = JSONResponse(msx.unsupported_version())
+            result.headers['Access-Control-Allow-Credentials'] = 'true'
+            result.headers['Access-Control-Allow-Origin'] = '*'
+            return result
+
+
+        request.state.device = Device.by_id(device_id)
+        if request.state.device is None and device_id is not None:
+            request.state.device = Device.create(device_id)
+        if request.state.device is not None and request.state.device.user_agent is None and (ua := request.headers.get('user-agent')) is not None:
+            request.state.device.update_user_agent(ua)
+
+        try:
+            real_ip = extract_real_ip(request)
+            if real_ip is not None and request.state.device is not None:
+                request.state.device.set_real_ip(real_ip)
+        except Exception as ex:
+            pass
+
     try:
         result = await call_next(request)
     except Exception as e:
@@ -71,22 +94,6 @@ async def auth(request: Request, call_next):
     return result
 
 # Static files
-
-@app.get('/')
-async def index(request: Request):
-    return FileResponse('pages/index.html')
-
-@app.get('/subtitleShifter')
-async def subtitle_editor(request: Request):
-    return FileResponse('pages/subtitle_shifter.html')
-
-@app.get('/paging.html')
-async def subtitle_editor(request: Request):
-    return FileResponse('pages/paging.html')
-
-@app.get('/paging.js')
-async def subtitle_editor(request: Request):
-    return FileResponse('pages/paging.js')
 
 @app.get(ENDPOINT + '/start.json')
 async def start(request: Request):
@@ -126,7 +133,10 @@ async def registration(request: Request):
 async def check_registration(request: Request):
     result = await KinoPub.check_registration(request.state.device.code)
     if result is None:
-        return msx.code_not_entered()
+        if request.query_params.get('silent') == 'true':
+            return msx.delay_registration_check()
+        else:
+            return msx.code_not_entered()
     request.state.device.update_tokens(result['access_token'], result['refresh_token'])
     await request.state.device.notify()
     return msx.restart()
@@ -187,7 +197,12 @@ async def folder(request: Request):
 @app.get(ENDPOINT + '/content')
 async def content(request: Request):
     result = await request.state.device.kp.get_single_content(request.query_params.get('content_id'))
-    return result.to_msx_panel(
+
+    if result is None:
+        return msx.does_not_exist()
+
+    #return result.to_msx_panel(
+    return result.to_msx_content(
         device_settings=request.state.device.settings
     )
 
@@ -240,6 +255,14 @@ async def search(request: Request):
     return result
 
 
+@app.get(ENDPOINT + '/search/content')
+async def search_content(request: Request):
+    page = int(request.query_params.get('page'))
+    result = await request.state.device.kp.search(request.query_params.get('q'), page=page, field=request.query_params.get('field'))
+    result = msx.content(result, "search", page, extra=False, device_settings=request.state.device.settings)
+    return result
+
+
 @app.get(ENDPOINT + '/history')
 async def history(request: Request):
     page = int(request.query_params.get('page'))
@@ -257,9 +280,10 @@ async def watching(request: Request):
 
 @app.get(ENDPOINT + '/collections')
 async def collections(request: Request):
-    page = request.query_params.get('page')
-    result = await request.state.device.kp.get_collections(page=page)
-    result = msx.collections(result, device_settings=request.state.device.settings)
+    page = int(request.query_params.get('page'))
+    sort = request.query_params.get('sort')
+    result = await request.state.device.kp.get_collections(page=page, sort=sort)
+    result = msx.collections(result, page=page, sort=sort, device_settings=request.state.device.settings)
     return result
 
 
@@ -300,7 +324,7 @@ async def toggle_subscription(request: Request):
     content_id = request.query_params.get('content_id')
     await request.state.device.kp.toggle_subscription(content_id)
     result = await request.state.device.kp.get_single_content(content_id)
-    return msx.update_panel(Content.SUBSCRIPTION_BUTTON_ID, result.to_subscription_button())
+    return msx.update_content(Content.SUBSCRIPTION_BUTTON_ID, result.to_subscription_button())
 
 
 @app.post(ENDPOINT + '/toggle_bookmark')
@@ -410,10 +434,17 @@ async def proxy_req(request: Request):
     url = request.query_params.get('url')
     try:
         proxy.check_url(url)
-        code, content_type, contents = await proxy.get(url)
+        real_ip = extract_real_ip(request)
+        code, content_type, contents = await proxy.get(url, real_ip=real_ip)
     except:
         return Response(status_code=403)
     return Response(contents, code, media_type=content_type)
+
+
+# Static folders
+
+app.mount('/player/', StaticFiles(directory='player', html=True), name='player')
+app.mount("/", StaticFiles(directory="pages", html=True), name="pages")
 
 
 if __name__ == '__main__':

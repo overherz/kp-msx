@@ -38,7 +38,7 @@ def format_action(path: str, params: dict = None, interaction: str = None, optio
 
 def start():
     return {
-        'name': 'kino.pub',
+        'name': 'kino.watch',
         'version': '6.6.6',
         'parameter': format_action('/msx/menu', module='menu'),
         'welcome': 'none',
@@ -56,7 +56,7 @@ def unregistered_menu():
         "reuse": False,
         "cache": False,
         "restore": False,
-        "headline": "kino.pub",
+        "headline": "kino.watch",
         "menu": [
             {
                 "icon": "vpn-key",
@@ -76,11 +76,12 @@ def registered_menu(categories: 'List[Category]'):
         "cache": False,
         "restore": False,
         "refocus": 1,
-        "headline": "kino.pub",
+        "headline": "kino.watch",
         "options": settings_screen(),
         "menu": menu,
     }
     return entry
+
 
 def sad_screen():
     return {
@@ -110,6 +111,33 @@ def sad_screen():
         }
     }
 
+
+def does_not_exist():
+    return {
+        "type": "pages",
+        "headline": SAD_LENNY,
+        "pages": [
+            {
+                "items": [
+                    {
+                        "type": "space",
+                        "layout": "0,0,6,2",
+                        "title": 'Ничего не нашлось',
+                        "titleFooter": 'Этот контент сейчас недоступен. Возможно, он когда-то снова появится и будет доступен, но никто не знает, когда.'
+                    },
+                    {
+                        "type": "button",
+                        "layout": "0,2,6,1",
+                        "label": "Вернуться назад",
+                        "action": 'back'
+                    }
+                ],
+            }
+        ]
+    }
+
+
+
 def already_registered():
     return {
         "type": "list",
@@ -126,21 +154,31 @@ def already_registered():
     }
 
 
+REGISTRATION_CHECK_PERIOD = 30
+
+
 def registration(user_code):
     return {
         "type": "pages",
         "headline": "Регистрация",
+        'ready': {'action': f'delay:btn:{REGISTRATION_CHECK_PERIOD}:{format_action("/msx/check_registration", params={"silent": "true"}, module="execute")}'},
         "pages": [
             {
                 "items": [
                     {
                         "type": "space",
-                        "layout": "0,0,6,2",
+                        "layout": "0,0,7,2",
+                        "title": 'Что это',
+                        "titleFooter": 'Это неофициальный киновотч для Media Station X. Не обращайтесь в поддержку по вопросам, связанным с этим приложением. При возникновении проблем с запуском видео или постерами откройте настройки приложения (кнопка "меню" или синяя цветная на пульте) и ознакомьтесь с пунктами.'
+                    },
+                    {
+                        "type": "space",
+                        "layout": "0,2,7,2",
                         "title": user_code,
-                        "titleFooter": 'Используйте этот код для добавления устройства на kino.pub или зеркале, после ввода кода нажмите кнопку "Я ввел код".'
+                        "titleFooter": 'Используйте этот код для добавления устройства на kino.watch или зеркале, после ввода кода нажмите кнопку "Я ввел код".'
                     }, {
                         "type": "button",
-                        "layout": "0,2,6,1",
+                        "layout": "0,4,7,1",
                         "label": "Я ввёл код",
                         "action": format_action('/msx/check_registration', module='execute')
                     }
@@ -155,6 +193,14 @@ def code_not_entered():
         'response': {
             'status': 200,
             'data': {'action': 'warn:Код не введён. Если прошло больше 5 минут, перезапустите приложение для получения нового кода.'}
+        }
+    }
+
+def delay_registration_check():
+    return {
+        'response': {
+            'status': 200,
+            'data': {'action': f'delay:btn:{REGISTRATION_CHECK_PERIOD}:{format_action("/msx/check_registration", params={"silent": "true"}, module="execute")}'}
         }
     }
 
@@ -194,7 +240,7 @@ def content(entries, category, page, extra=None, decompress=None, device_setting
     return resp
 
 
-def collections(entries, device_settings: 'DeviceSettings' = None) -> dict:
+def collections(entries, page=1, sort=None, device_settings: 'DeviceSettings' = None) -> dict:
     resp = {
         "type": "list",
         "template": {
@@ -205,6 +251,12 @@ def collections(entries, device_settings: 'DeviceSettings' = None) -> dict:
         },
         "items": []
     }
+
+    if page == 1 and sort is None:
+        from models.CategoryExtra import CategoryExtra
+        resp['header'] = {
+            "items": [i.to_msx(None) for i in CategoryExtra.static__collection_extras()]
+        }
 
     for entry in entries:
         resp['items'].append(entry.to_msx(device_settings=device_settings))
@@ -244,6 +296,18 @@ def update_panel(content_id, value):
             'status': 200,
             'data': {
                 'action': f'update:panel:{content_id}',
+                'data': value
+            }
+        }
+    }
+
+
+def update_content(content_id, value):
+    return {
+        'response': {
+            'status': 200,
+            'data': {
+                'action': f'update:content:{content_id}',
                 'data': value
             }
         }
@@ -298,7 +362,7 @@ def handle_exception(error_page=False):
         "type": "space",
         "layout": "0,0,6,2",
         "title": 'Произошла ошибка загрузки',
-        "titleFooter": 'Скорее всего, кинопаб сейчас недоступен. Проверьте статус на kinopub.online и ожидайте ремонта.'
+        "titleFooter": 'Скорее всего, киновотч сейчас недоступен. Проверьте статус на kinopub.online и ожидайте ремонта.'
     }
     restart_app_btn = {
         "type": "button",
@@ -354,7 +418,7 @@ def unsupported_version():
                         "type": "space",
                         "layout": "0,0,6,2",
                         "title": 'Старая версия MSX',
-                        "titleFooter": 'Используемая версия MSX слишком старая. Выберите один из параметров ниже для обновления. При выборе версии web.msx.benzac.de используйте вариант HTTPS. После обновления настройте кинопаб снова.'
+                        "titleFooter": 'Используемая версия MSX слишком старая. Выберите один из параметров ниже для обновления. При выборе версии web.msx.benzac.de используйте вариант HTTPS. После обновления настройте киновотч снова.'
                     }, {
                         "type": "button",
                         "layout": "0,2,6,1",
@@ -397,6 +461,7 @@ DEFAULT_PLAY_BUTTON_PROPS = {
     'button:restart:action': player_action_btn(),
     'button:speed:icon': 'replay',
     'button:speed:action': 'player:restart',
+    'trigger:background': 'player:button:eject:execute'
 }
 
 
@@ -411,7 +476,7 @@ def settings_screen(screen: bool = False):
         },
         "items": [
             {
-                "label": 'Настройки kino.pub',
+                "label": 'Настройки kino.watch',
                 'action': format_action('/msx/settings', module='panel'),
                 'icon': 'movie-filter',
                 'restore': False
@@ -434,7 +499,7 @@ def settings_screen(screen: bool = False):
             'id': 'info',
             'offset': '-6,1,6,1',
             #'offset': '0,0,4,1',
-            'headline': 'Настройки можно также открыть из главного меню (слева) нажатием синей цветной [{ico:msx-blue:stop}] кнопки или кнопки "меню" [{ico:menu}] на пульте. Подсказка находится справа снизу экрана.\nЭтот (и любой другой) пункт меню можно скрыть в разделе "Настройки kino.pub".',
+            'headline': 'Настройки можно также открыть из главного меню (слева) нажатием синей цветной [{ico:msx-blue:stop}] кнопки или кнопки "меню" [{ico:menu}] на пульте. Подсказка находится справа снизу экрана.\nЭтот (и любой другой) пункт меню можно скрыть в разделе "Настройки kino.watch".',
             'action': '[]',
         })
 
@@ -454,8 +519,10 @@ HELP_ID = 'help'
 
 def settings_menu(device_settings: 'DeviceSettings'):
     return {
-        "headline": "Настройки kino.pub",
+        "headline": "Настройки kino.watch",
         #"caption": "/{ico:msx-blue:stop}Настройки",
+        "reuse": False,
+        "cache": False,
         "template": {
             "enumerate": False,
             "type": "control",
@@ -546,8 +613,8 @@ def poster_settings_panel(posters: list['Poster']):
             "items": items
         }
 
-def play_action(video_url, device_settings: 'DeviceSettings' = None):
-    url = make_proxy_url(video_url) if device_settings is not None and device_settings.proxy else video_url
+def play_action(video_url, device_settings: 'DeviceSettings' = None, disable_proxy=False):
+    url = make_proxy_url(video_url) if device_settings is not None and device_settings.proxy and not disable_proxy else video_url
     player = config.ALTERNATIVE_PLAYER if device_settings is not None and device_settings.alternative_player else config.PLAYER
 
     if config.TIZEN:

@@ -15,17 +15,25 @@ from util.msx import LENNY
 
 class KinoPub:
 
-    def __init__(self, token, refresh):
+    def __init__(self, token, refresh, user_agent=None):
         self.token = token
         self.refresh = refresh
+        self.real_ip = None
+        self.user_agent = user_agent
 
     async def api(self, path, params=None, method='GET'):
-        headers = {'Authorization': 'Bearer ' + self.token}
-        async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as s:
+        headers = {'Authorization': 'Bearer ' + self.token, 'Accept-Encoding': 'br'}
+
+        if self.real_ip is not None:
+            headers['X-Real-Ip'] = self.real_ip
+        if self.user_agent is not None:
+            headers['User-Agent'] = 'kp-msx/' + self.user_agent
+
+        async with aiohttp.ClientSession(headers=headers, timeout=aiohttp.ClientTimeout(total=config.TIMEOUT)) as s:
             if method == 'GET':
-                response = await s.get(f'https://api.service-kp.com/v1{path}', params=params)
+                response = await s.get(f'{config.KP_API_DOMAIN}/v1{path}', params=params)
             else:
-                response = await s.request(method, f'https://api.service-kp.com/v1{path}', json=params)
+                response = await s.request(method, f'{config.KP_API_DOMAIN}/v1{path}', json=params)
 
             if response.status == 401:
                 reauth_result = await self.refresh_tokens()
@@ -33,6 +41,10 @@ class KinoPub:
                     return await self.api(path, params=params)
                 else:
                     return None
+
+            if response.status == 404:
+                return None
+
             result = await response.json()
             return result
 
@@ -65,8 +77,12 @@ class KinoPub:
         results = [Content(i) for i in result['items']]
         return results
 
-    async def search(self, query):
-        result = await self.api('/items/search', params={'q': query})
+    async def search(self, query, page=1, field=None):
+        params = {'q': query, 'page': page}
+        if field is not None:
+            params['field'] = field
+
+        result = await self.api('/items/search', params=params)
         if result is None:
             return []
         results = [Content(i) for i in result['items']]
@@ -125,8 +141,11 @@ class KinoPub:
             return None
         return [Channel(i) for i in result['channels']]
 
-    async def get_collections(self, page):
-        result = await self.api('/collections', params={'page': page})
+    async def get_collections(self, page, sort=None):
+        params = {'page': page}
+        if sort is not None:
+            params['sort'] = sort
+        result = await self.api('/collections', params=params)
         if result is None:
             return None
         return [Collection(i) for i in result['items']]
@@ -175,8 +194,8 @@ class KinoPub:
             'client_id': config.KP_CLIENT_ID,
             'client_secret': config.KP_CLIENT_SECRET
         }
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as s:
-            response = await s.post('https://api.service-kp.com/oauth2/device', params=params)
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=config.TIMEOUT)) as s:
+            response = await s.post(f'{config.KP_API_DOMAIN}/oauth2/device', params=params)
             result = await response.json()
             return result['user_code'], result['code']
 
@@ -188,8 +207,8 @@ class KinoPub:
             'client_secret': config.KP_CLIENT_SECRET,
             'code': code
         }
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as s:
-            response = await s.post('https://api.service-kp.com/oauth2/device', params=params)
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=config.TIMEOUT)) as s:
+            response = await s.post(f'{config.KP_API_DOMAIN}/oauth2/device', params=params)
             result = await response.json()
             if result.get('error') is not None:
                 return None
@@ -202,8 +221,8 @@ class KinoPub:
             'client_secret': config.KP_CLIENT_SECRET,
             'refresh_token': self.refresh
         }
-        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=5)) as s:
-            response = await s.post('https://api.service-kp.com/oauth2/device', params=params)
+        async with aiohttp.ClientSession(timeout=aiohttp.ClientTimeout(total=config.TIMEOUT)) as s:
+            response = await s.post(f'{config.KP_API_DOMAIN}/oauth2/device', params=params)
             result = await response.json()
             if result.get('error') is not None:
                 return False
